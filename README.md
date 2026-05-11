@@ -9,6 +9,15 @@ The benchmark introduces the **modified Jaccard index** `MJ_{20W}` as the headli
 metric, which couples appliance identification with a power tolerance so that
 predicting the right appliance with the wrong wattage is not rewarded.
 
+## Companion artifacts
+
+| Where             | What                                                               |
+| ----------------- | ------------------------------------------------------------------ |
+| **This repo**     | Code (package, scripts, tests, figure-reproduction)                |
+| [🤗 Dataset](https://huggingface.co/datasets/Pybunny/nilmbench-ukdale) | Pre-processed UK-DALE 16 kHz V/I splits (5 GB)         |
+| [🤗 Model](https://huggingface.co/Pybunny/nilmbench-faustine)         | Trained FaustineCNN checkpoint + recall-constrained cutoffs |
+| [🤗 Space](https://huggingface.co/spaces/Pybunny/NILMbench)           | Gradio demo: classify a single 6-s V/I frame in the browser |
+
 ## Quick start
 
 ```bash

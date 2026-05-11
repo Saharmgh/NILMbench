@@ -1,0 +1,9 @@
+{
+  "truth": {
+    "always on": 29.0,
+    "electronics & lighting": 100.5948486328125
+  },
+  "aggregate_W": 129.5948486328125,
+  "note": "Quiet baseline: always-on + electronics & lighting only.",
+  "source": "UK-DALE House 2, dense benchmark set, frame 0"
+}

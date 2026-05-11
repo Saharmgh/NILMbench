@@ -1,0 +1,13 @@
+{
+  "truth": {
+    "always on": 15.328383445739746,
+    "cooking": 1.0,
+    "dishwasher": 3170.2822265625,
+    "electronics & lighting": 117.14686584472656,
+    "fridge": 83.0,
+    "washing machine": 3.0
+  },
+  "aggregate_W": 3389.757568359375,
+  "note": "Dishwasher event (~3 kW).",
+  "source": "UK-DALE House 2, dense benchmark set, frame 1940"
+}

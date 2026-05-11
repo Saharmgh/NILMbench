@@ -1,0 +1,11 @@
+{
+  "truth": {
+    "always on": 15.0,
+    "cooking": 4120.15185546875,
+    "electronics & lighting": 13.0,
+    "fridge": 10.0
+  },
+  "aggregate_W": 4158.15185546875,
+  "note": "High-power cooking event (~4 kW).",
+  "source": "UK-DALE House 2, dense benchmark set, frame 39"
+}

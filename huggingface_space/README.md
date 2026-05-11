@@ -8,7 +8,7 @@ sdk_version: 4.44.0
 app_file: app.py
 pinned: false
 license: mit
-short_description: High-frequency NILM disaggregation demo (UK-DALE 16 kHz V/I).
+short_description: High-frequency NILM disaggregation on UK-DALE.
 ---
 
 # NILMbench demo

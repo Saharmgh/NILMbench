@@ -33,5 +33,8 @@ results/
 *.pth
 *.ckpt
 
+# The Space ships a handful of example V/I frames -- keep those.
+!huggingface_space/examples/*.npy
+
 # Notebook outputs
 *.ipynb_checkpoints/

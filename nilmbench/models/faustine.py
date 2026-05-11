@@ -17,7 +17,7 @@ class FaustineCNN(NILMRegressor):
     def __init__(self, n_categories: int, fc_hidden: int = 1024,
                  dropout: float = 0.25):
         super().__init__()
-        self.conv = nn.Sequential(
+        self.conv_layers = nn.Sequential(
             nn.Conv2d(2, 16, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm2d(16), nn.ReLU(inplace=True),
             nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=2),
@@ -28,7 +28,7 @@ class FaustineCNN(NILMRegressor):
             nn.BatchNorm2d(128), nn.ReLU(inplace=True),
             nn.AdaptiveAvgPool2d((1, 1)),
         )
-        self.fc = nn.Sequential(
+        self.fc_layers = nn.Sequential(
             nn.Linear(128, fc_hidden),
             nn.LayerNorm(fc_hidden),
             nn.ReLU(inplace=True),
@@ -38,6 +38,6 @@ class FaustineCNN(NILMRegressor):
         self.n_categories = n_categories
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = self.conv(x).flatten(1)
-        h = self.fc(h).view(x.size(0), self.n_categories, 2)
+        h = self.conv_layers(x).flatten(1)
+        h = self.fc_layers(h).view(x.size(0), self.n_categories, 2)
         return F.softmax(h, dim=-1)[..., 0]

@@ -2,3 +2,8 @@ torch>=2.1
 numpy>=1.24
 matplotlib>=3.7
 gradio>=4.44
+huggingface_hub>=0.24
+# audioop was dropped from the Python stdlib in 3.13. The Space is pinned to
+# 3.12 in README frontmatter, but keep the shim for safety in case it gets
+# rebuilt on a newer interpreter.
+audioop-lts ; python_version >= "3.13"

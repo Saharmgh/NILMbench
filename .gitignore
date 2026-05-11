@@ -1,0 +1,37 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+.venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Data and checkpoints (large)
+data/
+checkpoints/
+runs/
+results/
+*.npz
+*.npy
+*.h5
+*.hdf5
+*.flac
+*.pt
+*.pth
+*.ckpt
+
+# Notebook outputs
+*.ipynb_checkpoints/

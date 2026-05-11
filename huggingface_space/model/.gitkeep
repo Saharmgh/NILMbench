@@ -1,0 +1,4 @@
+# Drop the released FaustineCNN checkpoint here:
+#   faustine_best.pt   -- torch.save({"state_dict": ..., "classes": [...]})
+#   cutoffs.json       -- {"cutoffs_W": {<class>: <watts>, ...}}
+#   classes.json       -- ["always on", ...]

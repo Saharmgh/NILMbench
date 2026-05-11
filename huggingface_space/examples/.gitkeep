@@ -1,0 +1,3 @@
+# Drop UK-DALE House-2 example frames here as pairs:
+#   <name>.npy    -- (2, 96000) float32, FLAC-normalised in [-1, 1]
+#   <name>.json   -- {"truth": {"cooking": 4120, ...}, "aggregate_W": 4180}

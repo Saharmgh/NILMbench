@@ -1,0 +1,44 @@
+cff-version: 1.2.0
+title: "NILMbench: A Novel Benchmark For High-Frequency NILM Regression Models"
+message: "If you use NILMbench, please cite the paper below."
+type: software
+authors:
+  - family-names: Moghimian Hoosh
+    given-names: Sahar
+    affiliation: "Skolkovo Institute of Science and Technology"
+  - family-names: Kamyshev
+    given-names: Ilia
+    affiliation: "Skolkovo Institute of Science and Technology"
+    email: ilia.kamyshev@outlook.com
+  - family-names: Penuela
+    given-names: Javier
+    affiliation: "Skolkovo Institute of Science and Technology"
+  - family-names: Mahmood
+    given-names: Farhat
+    affiliation: "Hamad Bin Khalifa University"
+  - family-names: Al-Ansari
+    given-names: Tareq
+    affiliation: "Hamad Bin Khalifa University"
+  - family-names: Ouerdane
+    given-names: Henni
+    affiliation: "Skolkovo Institute of Science and Technology"
+    email: h.ouerdane@skoltech.ru
+repository-code: "https://github.com/Saharmgh/nilmbench"
+license: MIT
+preferred-citation:
+  type: article
+  title: "NILMbench: A Novel Benchmark For High-Frequency NILM Regression Models"
+  authors:
+    - family-names: Moghimian Hoosh
+      given-names: Sahar
+    - family-names: Kamyshev
+      given-names: Ilia
+    - family-names: Penuela
+      given-names: Javier
+    - family-names: Mahmood
+      given-names: Farhat
+    - family-names: Al-Ansari
+      given-names: Tareq
+    - family-names: Ouerdane
+      given-names: Henni
+  year: 2026

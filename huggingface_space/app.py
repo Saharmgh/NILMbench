@@ -409,48 +409,22 @@ def build_ui() -> gr.Blocks:
 
             with gr.TabItem("Benchmark your model"):
                 gr.Markdown(
-                    "Upload a `.py` file defining a `torch.nn.Module` "
-                    "subclass and its trained weights `.pt`. The Space "
-                    "downloads the dense House-2 benchmark split from "
-                    "[`Pybunny/nilmbench-ukdale`](https://huggingface.co/datasets/Pybunny/nilmbench-ukdale) "
-                    "on first run (cached afterwards), runs your model on the "
-                    "selected number of frames, and produces a full score "
-                    "sheet.\n\n"
-                    "**Model contract** (see "
-                    "[`examples/byom_template.py`](https://github.com/Saharmgh/NILMbench/blob/main/examples/byom_template.py)):\n"
-                    "* `forward(x)` takes `x` shape `(B, 2, 96000)` (V then I).\n"
-                    "* Returns non-negative `(B, K)` per-category power in "
-                    "watts. If your model emits shares in [0, 1] instead, "
-                    "select **shares** below and the runner will scale by the "
-                    "per-frame aggregate.\n"
-                    "* If the constructor accepts a keyword named "
-                    "`n_categories` (or `num_classes` / `K`), it is filled in "
-                    "automatically.\n"
-                )
-                with gr.Row():
-                    with gr.Column():
-                        model_py = gr.File(label="Model definition (.py)")
-                        weights = gr.File(label="Weights (.pt, optional)")
-                        class_name = gr.Textbox(label="Class name",
-                                                value="Model")
-                        output_kind = gr.Radio(
-                            ["watts", "shares"],
-                            value="watts",
-                            label="Output kind (watts = per-category power; "
-                                  "shares = renormalise + scale by aggregate)")
-                        max_frames = gr.Slider(50, 60000, value=500, step=50,
-                                                label="Frames to score "
-                                                      "(free CPU: 500 ≈ 1–2 min)")
-                        batch_size = gr.Slider(1, 64, value=16, step=1,
-                                                label="Batch size")
-                        run_btn = gr.Button("Run benchmark", variant="primary")
-                    with gr.Column():
-                        report_md = gr.Markdown()
-                        score_file = gr.File(label="Download score.json")
-                run_btn.click(
-                    run_benchmark_upload,
-                    [model_py, weights, class_name, output_kind, max_frames, batch_size],
-                    [report_md, score_file],
+                    "Full benchmark scoring is run via the CLI on your "
+                    "machine (uses up to 5 GB of UK-DALE 16 kHz V/I data "
+                    "and tens of minutes on CPU):\n\n"
+                    "```bash\n"
+                    "pip install git+https://github.com/Saharmgh/NILMbench\n"
+                    "nilmbench benchmark \\\n"
+                    "    --module my_model:MyModel \\\n"
+                    "    --weights ./my_checkpoint.pt \\\n"
+                    "    --data hf:Pybunny/nilmbench-ukdale \\\n"
+                    "    --out  ./report/\n"
+                    "```\n\n"
+                    "See "
+                    "[examples/byom_template.py](https://github.com/Saharmgh/NILMbench/blob/main/examples/byom_template.py) "
+                    "and "
+                    "[docs/TESTING_GUIDE.md](https://github.com/Saharmgh/NILMbench/blob/main/docs/TESTING_GUIDE.md) "
+                    "for the model contract and a step-by-step recipe."
                 )
     return demo
 

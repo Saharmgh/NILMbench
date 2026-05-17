@@ -440,15 +440,6 @@ def build_ui() -> gr.Blocks:
                 plot_a = gr.Plot()
                 lab_a = gr.JSON(label="Predicted power per category (W)")
                 btn.click(run_example, ex, [plot_a, lab_a])
-            with gr.TabItem("Upload your own"):
-                up = gr.File(label="V/I segment (.npy, shape (2, 96000), "
-                                    "FLAC-normalised float in [-1, 1])")
-                agg = gr.Slider(0, 8000, value=300, step=10,
-                                 label="Aggregate active power (W)")
-                btn2 = gr.Button("Run", variant="primary")
-                plot_b = gr.Plot()
-                lab_b = gr.JSON(label="Predicted power per category (W)")
-                btn2.click(run_upload, [up, agg], [plot_b, lab_b])
             with gr.TabItem("Benchmark your model"):
                 gr.Markdown(
                     "Upload a `.pt` checkpoint trained on the bundled "

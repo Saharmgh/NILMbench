@@ -2,7 +2,8 @@ torch>=2.1
 numpy>=1.24
 matplotlib>=3.7
 gradio>=4.44
-huggingface_hub>=0.24
+# Pin <1.0: huggingface_hub 1.x dropped HfFolder which gradio 4.x still imports.
+huggingface_hub>=0.24,<1.0
 # Pull the nilmbench package from the companion GitHub repo so the Space's
 # "Benchmark your model" tab reuses the same runner/evaluator/report code.
 nilmbench @ git+https://github.com/Saharmgh/NILMbench@main

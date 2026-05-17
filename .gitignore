@@ -35,6 +35,9 @@ results/
 
 # The Space ships a handful of example V/I frames -- keep those.
 !huggingface_space/examples/*.npy
+# The BYOM demo ships a tiny trained checkpoint so users can verify the
+# pipeline without retraining first.
+!examples/byom_demo.pt
 
 # Notebook outputs
 *.ipynb_checkpoints/

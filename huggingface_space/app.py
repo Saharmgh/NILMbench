@@ -456,13 +456,7 @@ def build_ui() -> gr.Blocks:
 
 
 if __name__ == "__main__":
-    # show_api=False bypasses gradio 4.44's broken JSON-schema introspector
-    # which hits `additionalProperties: True` on the new BYOM-tab schemas
-    # and crashes the /info endpoint. The handlers still work over the
-    # normal WebSocket; only the auto-generated API docs are disabled.
-    build_ui().launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        share=False,
-        show_api=False,
-    )
+    # Use bare launch(); HF Spaces auto-detects host/port from env vars.
+    # The schema bug that breaks /info is already handled by the
+    # gradio_client monkey-patch at the top of this file.
+    build_ui().launch()

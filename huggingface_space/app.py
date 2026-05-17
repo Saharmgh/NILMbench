@@ -368,18 +368,40 @@ def _score_demo_pt(weights_file, n_frames):
         cork = (Ak & Bk & eok).sum()
         per_class.append((c, float(cork / unionk) if unionk > 0 else 0.0))
 
+    # Paper baselines (Table 3 of the NILMbench manuscript; full 60 000 frames).
+    PAPER_BASELINES = [
+        # name, MJ_20W, F1, Jaccard, TECA, MAE_W
+        ("DeepDFML",                                0.316, 0.658, 0.532,  0.513, 38.64),
+        ("COLD",                                    0.375, 0.714, 0.600,  0.580, 37.53),
+        ("SchirmerCNN",                             0.412, 0.766, 0.667,  0.622, 45.25),
+        ("FaustineCNN",                             0.504, 0.790, 0.698,  0.706, 29.64),
+        ("FaustineCNN + recall-constr. cutoffs",    0.562, 0.811, 0.729,  0.739, 27.09),
+        ("predict zero (trivial)",                  0.000, 0.000, 0.000,  0.500, 67.60),
+        ("predict House-2 mean (trivial)",          0.227, 0.579, 0.450, -0.105, 60.70),
+        ("all to 'always on' (trivial)",            0.019, 0.557, 0.412,  0.165, 76.40),
+    ]
+
     md = []
     md.append(f"# NILMbench — uploaded .pt\n")
-    md.append(f"_Scored on {len(x)} of {total} dense House-2 frames._\n")
-    md.append("## Headline score sheet\n")
-    md.append("| Metric | Value |")
-    md.append("|---|---|")
-    md.append(f"| MJ_20W (headline) | {mj:.4f} |")
-    md.append(f"| F1 | {f1:.4f} |")
-    md.append(f"| Jaccard | {jacc:.4f} |")
-    md.append(f"| TECA | {teca:.4f} |")
-    md.append(f"| MAE (W) | {mae:.2f} |\n")
-    md.append("## Per-category MJ_20W\n")
+    md.append(f"_Your model scored on {len(x)} of {total} dense House-2 frames._\n")
+
+    md.append("## Comparison to paper baselines")
+    md.append("")
+    md.append("Baselines below are from Table 3 of the NILMbench paper, computed "
+              "on the full 60 000-frame dense House-2 set. **Your model is scored "
+              f"on the first {len(x)} frames only** (Space free-tier compute budget); "
+              "treat the comparison as directional. Use the `nilmbench` CLI locally "
+              "to score on all 60 000 frames for a fair comparison.\n")
+    md.append("| Model | MJ\\_{20W} | F1 | Jaccard | TECA | MAE (W) |")
+    md.append("|---|---|---|---|---|---|")
+    md.append(f"| **Your model (uploaded)** | **{mj:.4f}** | **{f1:.4f}** | "
+              f"**{jacc:.4f}** | **{teca:.4f}** | **{mae:.2f}** |")
+    for name, b_mj, b_f1, b_j, b_teca, b_mae in PAPER_BASELINES:
+        md.append(f"| {name} | {b_mj:.4f} | {b_f1:.4f} | {b_j:.4f} | "
+                  f"{b_teca:.4f} | {b_mae:.2f} |")
+    md.append("")
+
+    md.append("## Per-category MJ\\_{20W} (your model)\n")
     md.append("| Category | MJ_20W |")
     md.append("|---|---|")
     for c, v in per_class:

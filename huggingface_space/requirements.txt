@@ -5,6 +5,12 @@ gradio>=4.44,<5
 # Pin <1.0: huggingface_hub 1.x (released after the original Space build)
 # dropped HfFolder, which gradio 4.x imports at module load.
 huggingface_hub>=0.24,<1.0
+# Pin <0.36: starlette 0.36+ requires `TemplateResponse(request, name, ctx)`,
+# while gradio 4.x still calls the deprecated `(name, ctx)` form. Without
+# the pin the context dict gets passed where jinja expects a template
+# name, crashing the / route with `unhashable type: 'dict'`.
+starlette<0.36
+gradio_client<1.5
 # audioop was dropped from the Python stdlib in 3.13. The Space is pinned to
 # 3.12 in README frontmatter, but keep the shim for safety in case it gets
 # rebuilt on a newer interpreter.

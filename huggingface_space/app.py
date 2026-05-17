@@ -6,7 +6,35 @@ recall-constrained cutoffs are pulled from the HF model repo
 the Space so the demo works offline of the laptop.
 """
 
-from __future__ import annotations
+# ----------------------------------------------------------------------
+# Monkey-patch gradio_client schema walker BEFORE importing gradio.
+# Newer gradio_client (auto-installed by pip's resolution of gradio>=4.44)
+# crashes at startup with `TypeError: argument of type 'bool' is not
+# iterable` when it walks a schema with `additionalProperties: True`
+# (which gr.JSON outputs produce). This brings the / route down and
+# launch() then errors with "localhost is not accessible". Returning
+# "Any" for bool schemas is what the unbroken upstream code does.
+# ----------------------------------------------------------------------
+import gradio_client.utils as _gc_utils  # noqa: E402
+
+_orig_get_type = _gc_utils.get_type
+_orig_to_python = _gc_utils._json_schema_to_python_type
+
+
+def _safe_get_type(schema):
+    if isinstance(schema, bool):
+        return "Any" if schema else "None"
+    return _orig_get_type(schema)
+
+
+def _safe_to_python(schema, defs):
+    if isinstance(schema, bool):
+        return "Any" if schema else "None"
+    return _orig_to_python(schema, defs)
+
+
+_gc_utils.get_type = _safe_get_type
+_gc_utils._json_schema_to_python_type = _safe_to_python
 
 import json
 from pathlib import Path

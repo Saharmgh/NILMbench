@@ -1,53 +1,14 @@
 """NILMbench HuggingFace Space.
 
-Three tabs:
-
-1. **Built-in example** – run the FaustineCNN baseline on a packaged
-   6-second 16 kHz V/I frame from UK-DALE House 2.
-2. **Upload V/I frame** – run FaustineCNN on a user-supplied single frame.
-3. **Benchmark your model** – upload a ``.py`` model definition + a ``.pt``
-   weights file and score it on the dense UK-DALE House 2 benchmark (full
-   60,000 frames; the Space defaults to a 500-frame quick check to stay
-   within the free-tier compute budget).
-
-Model weights, classes, and recall-constrained cutoffs for the baseline are
-pulled from the HF model repo ``Pybunny/nilmbench-faustine`` at startup.
+Single-frame demo of the FaustineCNN baseline. Model weights, classes, and
+recall-constrained cutoffs are pulled from the HF model repo
+``Pybunny/nilmbench-faustine`` at startup. Example frames are bundled with
+the Space so the demo works offline of the laptop.
 """
 
-# ----------------------------------------------------------------------
-# Monkey-patch the gradio_client schema walker BEFORE importing gradio.
-# In gradio 4.44 / gradio_client 1.5 the walker recurses into
-# ``additionalProperties`` without checking whether the value is a bool
-# (JSON-Schema allows ``additionalProperties: true``), then crashes with
-# ``TypeError: argument of type 'bool' is not iterable``. This brings down
-# the / route at startup. Patching the two entry points is enough.
-# ----------------------------------------------------------------------
-import gradio_client.utils as _gc_utils  # noqa: E402
+from __future__ import annotations
 
-_orig_get_type = _gc_utils.get_type
-_orig_to_python = _gc_utils._json_schema_to_python_type
-
-
-def _safe_get_type(schema):
-    if isinstance(schema, bool):
-        return "Any" if schema else "None"
-    return _orig_get_type(schema)
-
-
-def _safe_to_python(schema, defs):
-    if isinstance(schema, bool):
-        return "Any" if schema else "None"
-    return _orig_to_python(schema, defs)
-
-
-_gc_utils.get_type = _safe_get_type
-_gc_utils._json_schema_to_python_type = _safe_to_python
-
-import importlib.util
 import json
-import sys
-import tempfile
-import traceback
 from pathlib import Path
 
 import numpy as np
@@ -58,17 +19,11 @@ import gradio as gr
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from huggingface_hub import hf_hub_download, snapshot_download
-
-# nilmbench is installed from the companion GitHub repo (see requirements.txt).
-from nilmbench.runner import run_user_model
-from nilmbench.benchmark import evaluate_dense
-from nilmbench.io.report import render_markdown_report
+from huggingface_hub import hf_hub_download
 
 HERE = Path(__file__).resolve().parent
 EXAMPLES_DIR = HERE / "examples"
 MODEL_REPO = "Pybunny/nilmbench-faustine"
-DATASET_REPO = "Pybunny/nilmbench-ukdale"
 
 # UK-DALE House 2 calibration constants (from calibration_house_2.cfg).
 V_PER_ADC = 1.88296904357e-7
@@ -79,7 +34,7 @@ I_FACTOR = ADC_FULL_SCALE * I_PER_ADC   # ~102.5
 
 
 # ----------------------------------------------------------------------
-# Baseline model (self-contained for the single-frame demo)
+# Model (self-contained so the Space has no dependency on the nilmbench pkg)
 # ----------------------------------------------------------------------
 class FaustineCNN(nn.Module):
     def __init__(self, n_categories: int):
@@ -134,7 +89,7 @@ MODEL, CLASSES, CUTOFFS = load_assets()
 
 
 # ----------------------------------------------------------------------
-# Single-frame inference (tabs 1 and 2)
+# Inference + plotting
 # ----------------------------------------------------------------------
 def _to_2d_image(vi_norm: np.ndarray) -> torch.Tensor:
     if vi_norm.shape != (2, 96000):
@@ -146,6 +101,8 @@ def _to_2d_image(vi_norm: np.ndarray) -> torch.Tensor:
 def predict(vi_norm: np.ndarray, aggregate_W: float) -> dict[str, float]:
     with torch.no_grad():
         scores = MODEL(_to_2d_image(vi_norm)).cpu().numpy().squeeze(0)
+    # FaustineCNN outputs per-category Bernoulli activations; renormalise
+    # across categories to obtain shares, then scale by the aggregate.
     shares = scores / (scores.sum() + 1e-9)
     raw = shares * float(aggregate_W)
     out = {}
@@ -198,6 +155,9 @@ def make_overview_plot(vi_norm: np.ndarray, preds: dict[str, float],
     return fig
 
 
+# ----------------------------------------------------------------------
+# Gradio handlers
+# ----------------------------------------------------------------------
 def list_examples() -> list[str]:
     if not EXAMPLES_DIR.exists():
         return []
@@ -236,201 +196,38 @@ def run_upload(file_obj, aggregate_W: float):
 
 
 # ----------------------------------------------------------------------
-# Tab 3: full benchmark, with the user's uploaded model
-# ----------------------------------------------------------------------
-_BENCHMARK_DATA_DIR: Path | None = None
-
-
-def _ensure_benchmark_data() -> Path:
-    """Snapshot-download the dense House-2 split (cached after first call)."""
-    global _BENCHMARK_DATA_DIR
-    if _BENCHMARK_DATA_DIR is not None:
-        return _BENCHMARK_DATA_DIR
-    local = snapshot_download(
-        repo_id=DATASET_REPO,
-        repo_type="dataset",
-        allow_patterns=["benchmark/*", "summary.json", "README.md"],
-    )
-    _BENCHMARK_DATA_DIR = Path(local)
-    return _BENCHMARK_DATA_DIR
-
-
-def _import_user_module(file_path: Path, class_name: str):
-    """Dynamically import a user-uploaded ``.py`` and return the class."""
-    spec = importlib.util.spec_from_file_location("user_model_module", file_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load module from {file_path}")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["user_model_module"] = mod
-    spec.loader.exec_module(mod)
-    if not hasattr(mod, class_name):
-        raise AttributeError(
-            f"Uploaded module has no attribute '{class_name}'. "
-            f"Available: {[n for n in dir(mod) if not n.startswith('_')]}"
-        )
-    return getattr(mod, class_name)
-
-
-def _subset_dataset(data_root: Path, max_frames: int) -> Path:
-    """Make a temporary benchmark/ directory with the first N frames only.
-
-    Lets us cap compute time on the free Space tier.
-    """
-    src = data_root / "benchmark"
-    n_total = int(np.load(src / "x_vi_6s.npy", mmap_mode="r").shape[0])
-    if max_frames >= n_total:
-        return data_root  # use full set
-
-    tmp_root = Path(tempfile.mkdtemp(prefix="nilmbench_subset_"))
-    sub = tmp_root / "benchmark"
-    sub.mkdir(parents=True)
-
-    x = np.load(src / "x_vi_6s.npy", mmap_mode="r")
-    np.save(sub / "x_vi_6s.npy", np.asarray(x[:max_frames]))
-
-    lab = np.load(src / "labels_and_index.npz", allow_pickle=True)
-    sliced = {}
-    for k in lab.files:
-        v = lab[k]
-        if v.ndim >= 1 and v.shape[0] == n_total:
-            sliced[k] = v[:max_frames]
-        else:
-            sliced[k] = v
-    np.savez_compressed(sub / "labels_and_index.npz", **sliced)
-    return tmp_root
-
-
-def run_benchmark_upload(model_file, weights_file, class_name: str,
-                          output_kind: str, max_frames: int, batch_size: int):
-    """Run the user's model on the dense House-2 set and render a report."""
-    if model_file is None:
-        return "**Please upload a Python file defining your model.**", None
-    class_name = (class_name or "Model").strip() or "Model"
-
-    try:
-        ModelCls = _import_user_module(Path(model_file.name), class_name)
-    except Exception as exc:
-        return (f"**Failed to import model class `{class_name}`:**\n\n"
-                f"```\n{traceback.format_exc()}\n```"), None
-
-    try:
-        data_root = _ensure_benchmark_data()
-    except Exception:
-        return (f"**Could not download benchmark data:**\n\n"
-                f"```\n{traceback.format_exc()}\n```"), None
-
-    try:
-        active_root = _subset_dataset(data_root, int(max_frames))
-    except Exception:
-        return (f"**Could not prepare data subset:**\n\n"
-                f"```\n{traceback.format_exc()}\n```"), None
-
-    tmpdir = Path(tempfile.mkdtemp(prefix="nilmbench_report_"))
-    preds_path = tmpdir / "predictions.npz"
-
-    try:
-        # We already have the class; rebind via a temporary module name so
-        # nilmbench.runner's importer can find it.
-        sys.modules["__nilmbench_user__"] = sys.modules["user_model_module"]
-        run = run_user_model(
-            module_spec=f"__nilmbench_user__:{class_name}",
-            weights_path=weights_file.name if weights_file is not None else None,
-            data_root=active_root,
-            out_path=preds_path,
-            batch_size=int(batch_size),
-            device="cpu",
-            output_kind=output_kind,
-            strict_load=False,
-            model_name=class_name,
-        )
-    except Exception:
-        return (f"**Model failed during inference:**\n\n"
-                f"```\n{traceback.format_exc()}\n```"), None
-
-    preds = np.load(preds_path, allow_pickle=True)
-    result = evaluate_dense(
-        y_true_W=preds["y_true"].astype(np.float32),
-        y_pred_W=preds["y_pred"].astype(np.float32),
-        classes=[str(c) for c in preds["class_names"]],
-        model_name=class_name,
-    )
-
-    extra = {
-        "Model class": class_name,
-        "Weights file": Path(weights_file.name).name if weights_file else "(none)",
-        "Frames scored": f"{run.n_frames} / 60,000",
-        "Output kind": output_kind,
-    }
-    md = render_markdown_report(
-        result,
-        title=f"NILMbench report — {class_name}",
-        extra=extra,
-    )
-
-    score_json_path = tmpdir / "score.json"
-    score_json_path.write_text(json.dumps(result.to_dict(), indent=2, sort_keys=True))
-
-    return md, str(score_json_path)
-
-
-# ----------------------------------------------------------------------
 # UI
 # ----------------------------------------------------------------------
 def build_ui() -> gr.Blocks:
     examples = list_examples()
-    with gr.Blocks(title="NILMbench") as demo:
+    with gr.Blocks(title="NILMbench demo") as demo:
         gr.Markdown(
-            "# NILMbench\n"
-            "Open benchmark for high-frequency NILM regression on UK-DALE 2015 "
-            "(House 1 → House 2). Headline metric: modified Jaccard index "
-            "**MJ$_{20W}$** with hybrid tolerance.\n\n"
+            "# NILMbench demo\n"
+            "FaustineCNN trained on UK-DALE House 1, applied to a single "
+            "6-second 16 kHz V/I segment from House 2. Predicted power is "
+            "post-processed with the recall-constrained cutoffs from the paper.\n\n"
             "Source code: <https://github.com/Saharmgh/NILMbench> · "
-            "Baseline model: <https://huggingface.co/Pybunny/nilmbench-faustine> · "
-            "Dataset: <https://huggingface.co/datasets/Pybunny/nilmbench-ukdale>"
+            "Model: <https://huggingface.co/Pybunny/nilmbench-faustine>"
         )
         with gr.Tabs():
-            with gr.TabItem("Single frame · built-in example"):
+            with gr.TabItem("Built-in example"):
                 ex = gr.Dropdown(examples, label="Example frame",
                                   value=examples[0] if examples else None)
-                btn = gr.Button("Run FaustineCNN", variant="primary")
+                btn = gr.Button("Run", variant="primary")
                 plot_a = gr.Plot()
                 lab_a = gr.JSON(label="Predicted power per category (W)")
                 btn.click(run_example, ex, [plot_a, lab_a])
-
-            with gr.TabItem("Single frame · upload V/I"):
+            with gr.TabItem("Upload your own"):
                 up = gr.File(label="V/I segment (.npy, shape (2, 96000), "
                                     "FLAC-normalised float in [-1, 1])")
                 agg = gr.Slider(0, 8000, value=300, step=10,
                                  label="Aggregate active power (W)")
-                btn2 = gr.Button("Run FaustineCNN", variant="primary")
+                btn2 = gr.Button("Run", variant="primary")
                 plot_b = gr.Plot()
                 lab_b = gr.JSON(label="Predicted power per category (W)")
                 btn2.click(run_upload, [up, agg], [plot_b, lab_b])
-
-            with gr.TabItem("Benchmark your model"):
-                gr.Markdown(
-                    "Full benchmark scoring is run via the CLI on your "
-                    "machine (uses up to 5 GB of UK-DALE 16 kHz V/I data "
-                    "and tens of minutes on CPU):\n\n"
-                    "```bash\n"
-                    "pip install git+https://github.com/Saharmgh/NILMbench\n"
-                    "nilmbench benchmark \\\n"
-                    "    --module my_model:MyModel \\\n"
-                    "    --weights ./my_checkpoint.pt \\\n"
-                    "    --data hf:Pybunny/nilmbench-ukdale \\\n"
-                    "    --out  ./report/\n"
-                    "```\n\n"
-                    "See "
-                    "[examples/byom_template.py](https://github.com/Saharmgh/NILMbench/blob/main/examples/byom_template.py) "
-                    "and "
-                    "[docs/TESTING_GUIDE.md](https://github.com/Saharmgh/NILMbench/blob/main/docs/TESTING_GUIDE.md) "
-                    "for the model contract and a step-by-step recipe."
-                )
     return demo
 
 
 if __name__ == "__main__":
-    # Use bare launch(); HF Spaces auto-detects host/port from env vars.
-    # The schema bug that breaks /info is already handled by the
-    # gradio_client monkey-patch at the top of this file.
     build_ui().launch()

@@ -1,9 +1,16 @@
 """NILMbench HuggingFace Space.
 
-Single-frame demo of the FaustineCNN baseline. Model weights, classes, and
-recall-constrained cutoffs are pulled from the HF model repo
-``Pybunny/nilmbench-faustine`` at startup. Example frames are bundled with
-the Space so the demo works offline of the laptop.
+Three tabs:
+1. Built-in single-frame example (FaustineCNN baseline, V/I bundled).
+2. Single-frame upload (user supplies a V/I segment).
+3. Benchmark your model: user uploads a .pt for the bundled
+   ``DemoRegressor`` architecture (see examples/byom_demo.py in the GitHub
+   repo); the Space scores it on a subset of the dense House-2 set and
+   renders the same Markdown report the CLI produces.
+
+Asset sources: model weights for the baseline come from
+``Pybunny/nilmbench-faustine``; the dense benchmark split for tab 3 is
+fetched once from ``Pybunny/nilmbench-ukdale`` and cached.
 """
 
 # ----------------------------------------------------------------------
@@ -224,6 +231,160 @@ def run_upload(file_obj, aggregate_W: float):
 
 
 # ----------------------------------------------------------------------
+# Tab 3: full benchmark with a user-uploaded .pt for DemoRegressor
+# ----------------------------------------------------------------------
+# Self-contained copy of examples.byom_demo.DemoRegressor so the Space
+# does not have to import the nilmbench package at module load time
+# (lighter dep tree, faster cold start).
+class DemoRegressor(nn.Module):
+    """6 V/I stats -> linear -> softplus. Output: per-category power (W)."""
+    N_FEATURES = 6
+
+    def __init__(self, n_categories: int = 7):
+        super().__init__()
+        self.n_categories = n_categories
+        self.head = nn.Linear(self.N_FEATURES, n_categories)
+
+    @staticmethod
+    def _feats(x):
+        rms = (x * x).mean(dim=-1).clamp_min(0).sqrt()
+        absmean = x.abs().mean(dim=-1)
+        std = x.std(dim=-1)
+        return torch.cat([rms, absmean, std], dim=-1)
+
+    def forward(self, x):
+        return F.softplus(self.head(self._feats(x)))
+
+
+_BENCH_DATA_DIR = None
+
+
+def _bench_data_root():
+    """Cache-aware snapshot_download of the benchmark/ split."""
+    global _BENCH_DATA_DIR
+    if _BENCH_DATA_DIR is not None:
+        return _BENCH_DATA_DIR
+    from huggingface_hub import snapshot_download
+    local = snapshot_download(
+        repo_id="Pybunny/nilmbench-ukdale", repo_type="dataset",
+        allow_patterns=["benchmark/*", "summary.json"],
+    )
+    _BENCH_DATA_DIR = Path(local)
+    return _BENCH_DATA_DIR
+
+
+def _bench_subset(n_frames):
+    """Memory-mapped read of the first n_frames frames from benchmark/."""
+    import tempfile
+    root = _bench_data_root() / "benchmark"
+    total = int(np.load(root / "x_vi_6s.npy", mmap_mode="r").shape[0])
+    n = max(1, min(int(n_frames), total))
+    x = np.asarray(np.load(root / "x_vi_6s.npy", mmap_mode="r")[:n],
+                   dtype=np.float32)
+    lab = np.load(root / "labels_and_index.npz", allow_pickle=True)
+    y = lab["y_power"][:n].astype(np.float32)
+    cls = [str(c) for c in lab["class_names"]]
+    return x, y, cls, total
+
+
+def _score_demo_pt(weights_file, n_frames):
+    """Load the user's .pt into DemoRegressor and produce a Markdown report."""
+    import json as _json
+    if weights_file is None:
+        return ("**Please upload a .pt file trained on the "
+                "`DemoRegressor` architecture** (see "
+                "[examples/byom_demo.py](https://github.com/Saharmgh/NILMbench/blob/main/examples/byom_demo.py)). "
+                "A bundled checkpoint is at "
+                "[examples/byom_demo.pt](https://github.com/Saharmgh/NILMbench/blob/main/examples/byom_demo.pt).",
+                None)
+    try:
+        x, y_true, classes, total = _bench_subset(n_frames)
+    except Exception as exc:
+        return (f"**Benchmark data download failed.**\n\n```\n{exc}\n```", None)
+
+    K = len(classes)
+    model = DemoRegressor(n_categories=K)
+    try:
+        state = torch.load(weights_file.name, map_location="cpu",
+                           weights_only=False)
+        if isinstance(state, dict) and "state_dict" in state:
+            state = state["state_dict"]
+        model.load_state_dict(state, strict=True)
+    except Exception as exc:
+        return (f"**Weights failed to load** (does the checkpoint match "
+                f"`DemoRegressor(n_categories={K})`?).\n\n"
+                f"```\n{exc}\n```", None)
+    model.eval()
+
+    with torch.inference_mode():
+        x_t = torch.as_tensor(x)
+        y_pred = model(x_t).cpu().numpy().astype(np.float32)
+
+    # Use the nilmbench scorer, but installing it as a dep is heavy. Compute
+    # the headline numbers inline. theta_k defaults from the paper.
+    THETA = np.array([3, 50, 10, 5, 5, 10, 10], dtype=np.float32)
+    if K != 7:
+        THETA = np.full(K, 10.0, dtype=np.float32)
+
+    A = y_true > THETA
+    B = y_pred > THETA
+    err_ok = np.abs(y_pred - y_true) <= 20.0
+    union = (A | B).sum(axis=1)
+    keep = union > 0
+    inter = (A & B).sum(axis=1).astype(np.float32)
+    correct = (A & B & err_ok).sum(axis=1).astype(np.float32)
+    mj = float((correct[keep] / np.maximum(union[keep], 1)).mean()) if keep.any() else 0.0
+    jacc = float((inter[keep] / np.maximum(union[keep], 1)).mean()) if keep.any() else 0.0
+
+    tp = (A & B).sum(axis=1).astype(np.float32)
+    fp = (~A & B).sum(axis=1).astype(np.float32)
+    fn = (A & ~B).sum(axis=1).astype(np.float32)
+    f1d = tp + 0.5 * (fp + fn)
+    f1 = float(np.where(f1d > 0, tp / np.maximum(f1d, 1), np.nan))
+    f1 = float(np.nanmean(np.where(f1d > 0, tp / np.maximum(f1d, 1), np.nan)))
+    P = y_true.sum(axis=1)
+    teca = float(np.nanmean(np.where(P > 0,
+                                     1.0 - np.abs(y_true - y_pred).sum(axis=1) / np.maximum(2 * P, 1e-9),
+                                     np.nan)))
+    mae = float(np.mean(np.abs(y_true - y_pred)))
+
+    per_class = []
+    for k, c in enumerate(classes):
+        Ak = A[:, k]; Bk = B[:, k]
+        eok = np.abs(y_pred[:, k] - y_true[:, k]) <= 20.0
+        unionk = (Ak | Bk).sum()
+        cork = (Ak & Bk & eok).sum()
+        per_class.append((c, float(cork / unionk) if unionk > 0 else 0.0))
+
+    md = []
+    md.append(f"# NILMbench — uploaded .pt\n")
+    md.append(f"_Scored on {len(x)} of {total} dense House-2 frames._\n")
+    md.append("## Headline score sheet\n")
+    md.append("| Metric | Value |")
+    md.append("|---|---|")
+    md.append(f"| MJ_20W (headline) | {mj:.4f} |")
+    md.append(f"| F1 | {f1:.4f} |")
+    md.append(f"| Jaccard | {jacc:.4f} |")
+    md.append(f"| TECA | {teca:.4f} |")
+    md.append(f"| MAE (W) | {mae:.2f} |\n")
+    md.append("## Per-category MJ_20W\n")
+    md.append("| Category | MJ_20W |")
+    md.append("|---|---|")
+    for c, v in per_class:
+        md.append(f"| {c} | {v:.4f} |")
+    md.append("")
+
+    import tempfile as _t
+    out = Path(_t.mkdtemp(prefix="nbench_report_")) / "score.json"
+    out.write_text(_json.dumps({
+        "MJ_20W": mj, "F1": f1, "Jaccard": jacc, "TECA": teca, "MAE_W": mae,
+        "n_frames": int(len(x)), "n_total": int(total),
+        "per_class_MJ_20W": dict(per_class),
+    }, indent=2, sort_keys=True))
+    return "\n".join(md), str(out)
+
+
+# ----------------------------------------------------------------------
 # UI
 # ----------------------------------------------------------------------
 def build_ui() -> gr.Blocks:
@@ -254,6 +415,26 @@ def build_ui() -> gr.Blocks:
                 plot_b = gr.Plot()
                 lab_b = gr.JSON(label="Predicted power per category (W)")
                 btn2.click(run_upload, [up, agg], [plot_b, lab_b])
+            with gr.TabItem("Benchmark your model"):
+                gr.Markdown(
+                    "Upload a `.pt` checkpoint trained on the bundled "
+                    "[`DemoRegressor`](https://github.com/Saharmgh/NILMbench/blob/main/examples/byom_demo.py) "
+                    "architecture (V/I summary stats → linear head, 7 outputs). "
+                    "A sample checkpoint is in the repo at "
+                    "[`examples/byom_demo.pt`](https://github.com/Saharmgh/NILMbench/blob/main/examples/byom_demo.pt). "
+                    "The Space downloads the dense House-2 benchmark from "
+                    "`Pybunny/nilmbench-ukdale` on first run (cached) and "
+                    "scores your model on the selected number of frames. "
+                    "For full 60 000-frame scoring or your own model "
+                    "architecture, use the `nilmbench` CLI from the GitHub repo."
+                )
+                pt = gr.File(label="Trained .pt for DemoRegressor")
+                nf = gr.Slider(50, 5000, value=500, step=50,
+                                label="Frames to score (free CPU; 500 ≈ 1 min)")
+                bb = gr.Button("Run benchmark", variant="primary")
+                rep = gr.Markdown()
+                jf = gr.File(label="score.json")
+                bb.click(_score_demo_pt, [pt, nf], [rep, jf])
     return demo
 
 

@@ -14,7 +14,34 @@ Model weights, classes, and recall-constrained cutoffs for the baseline are
 pulled from the HF model repo ``Pybunny/nilmbench-faustine`` at startup.
 """
 
-from __future__ import annotations
+# ----------------------------------------------------------------------
+# Monkey-patch the gradio_client schema walker BEFORE importing gradio.
+# In gradio 4.44 / gradio_client 1.5 the walker recurses into
+# ``additionalProperties`` without checking whether the value is a bool
+# (JSON-Schema allows ``additionalProperties: true``), then crashes with
+# ``TypeError: argument of type 'bool' is not iterable``. This brings down
+# the / route at startup. Patching the two entry points is enough.
+# ----------------------------------------------------------------------
+import gradio_client.utils as _gc_utils  # noqa: E402
+
+_orig_get_type = _gc_utils.get_type
+_orig_to_python = _gc_utils._json_schema_to_python_type
+
+
+def _safe_get_type(schema):
+    if isinstance(schema, bool):
+        return "Any" if schema else "None"
+    return _orig_get_type(schema)
+
+
+def _safe_to_python(schema, defs):
+    if isinstance(schema, bool):
+        return "Any" if schema else "None"
+    return _orig_to_python(schema, defs)
+
+
+_gc_utils.get_type = _safe_get_type
+_gc_utils._json_schema_to_python_type = _safe_to_python
 
 import importlib.util
 import json

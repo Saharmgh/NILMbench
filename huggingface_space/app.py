@@ -274,17 +274,30 @@ def _bench_data_root():
 
 
 def _bench_subset(n_frames):
-    """Memory-mapped read of the first n_frames frames from benchmark/."""
-    import tempfile
+    """Memory-mapped read of the first n_frames frames from benchmark/.
+
+    Filters the labels to the 7-category benchmark scoring set
+    (electrical heating is listed in the file but never activates in House 2
+    and is excluded by the official protocol). This matches the shape of
+    the bundled byom_demo.pt and any other DemoRegressor checkpoint
+    trained via examples/byom_demo.py.
+    """
+    BENCH_CLASSES = [
+        "always on", "cooking", "dishwasher", "electronics & lighting",
+        "fridge", "misc", "washing machine",
+    ]
     root = _bench_data_root() / "benchmark"
     total = int(np.load(root / "x_vi_6s.npy", mmap_mode="r").shape[0])
     n = max(1, min(int(n_frames), total))
     x = np.asarray(np.load(root / "x_vi_6s.npy", mmap_mode="r")[:n],
                    dtype=np.float32)
     lab = np.load(root / "labels_and_index.npz", allow_pickle=True)
-    y = lab["y_power"][:n].astype(np.float32)
-    cls = [str(c) for c in lab["class_names"]]
-    return x, y, cls, total
+    all_cls = [str(c) for c in lab["class_names"]]
+    keep = [all_cls.index(c) for c in BENCH_CLASSES if c in all_cls]
+    y_all = lab["y_power"][:n].astype(np.float32)
+    y = y_all[:, keep]
+    classes = [all_cls[i] for i in keep]
+    return x, y, classes, total
 
 
 def _score_demo_pt(weights_file, n_frames):

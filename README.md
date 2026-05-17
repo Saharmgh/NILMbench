@@ -18,31 +18,112 @@ predicting the right appliance with the wrong wattage is not rewarded.
 | [🤗 Model](https://huggingface.co/Pybunny/nilmbench-faustine)         | Trained FaustineCNN checkpoint + recall-constrained cutoffs |
 | [🤗 Space](https://huggingface.co/spaces/Pybunny/NILMbench)           | Gradio demo: classify a single 6-s V/I frame in the browser |
 
-## Quick start
+## Quick start — benchmark your model in one command
+
+NILMbench is built so a third-party model can be scored end-to-end without
+having to re-implement the data pipeline or the metrics. The bundled
+benchmark data is downloaded from the HuggingFace dataset
+[`Pybunny/nilmbench-ukdale`](https://huggingface.co/datasets/Pybunny/nilmbench-ukdale)
+automatically on first run.
 
 ```bash
-git clone https://github.com/Saharmgh/nilmbench
-cd nilmbench
+git clone https://github.com/Saharmgh/NILMbench
+cd NILMbench
 pip install -e .
 
-# Download UK-DALE 2015 (16 kHz V/I + 1/6 Hz submeters) and point NILMbench at it.
-export UKDALE_ROOT=/path/to/UK-DALE-2015
+# Score a model in one shot.
+# (RandomPredictor is the toy example shipped in examples/byom_random.py.)
+nilmbench benchmark \
+    --module examples.byom_random:RandomPredictor \
+    --data hf:Pybunny/nilmbench-ukdale \
+    --out  ./report/
+```
 
-# 1. Prepare the sparse 6-second frames and the dense House-2 evaluation set.
+That call:
+
+1. snapshot-downloads the dense House-2 benchmark split from HuggingFace,
+2. instantiates your model class, loads weights if given,
+3. iterates every labelled 6-second 16 kHz V/I frame,
+4. writes `report/predictions.npz`, `report/score.json`, and `report/report.md`.
+
+## Bring your own model
+
+Implement a `torch.nn.Module` whose forward pass conforms to the contract:
+
+```
+Input  x : torch.Tensor, shape (B, 2, 96000), float32
+           x[:, 0, :]  voltage trace (V)
+           x[:, 1, :]  current trace (A)
+Output y : torch.Tensor, shape (B, K), float32, non-negative
+           per-category active power in WATTS.
+```
+
+`K` is the number of scored appliance categories (7 on UK-DALE House 2). The
+runner inspects your `__init__` signature and, if it accepts a keyword
+called `n_categories` (or `num_categories`, `num_classes`, `n_classes`, `K`),
+fills it in automatically — so you don't have to hard-code the count.
+
+If your model emits per-category *shares* in `[0, 1]` rather than watts, pass
+`--shares` and the runner will rescale by the per-frame aggregate active
+power read from the benchmark dataset.
+
+A minimal starter template lives in
+[`examples/byom_template.py`](examples/byom_template.py); a trivial
+random-output example in
+[`examples/byom_random.py`](examples/byom_random.py) lets you verify the
+pipeline works before you wire up your own architecture.
+
+```bash
+# Score your model end-to-end.
+nilmbench benchmark \
+    --module     my_pkg.my_module:MyModel \
+    --weights    ./my_checkpoint.pt \
+    --data       hf:Pybunny/nilmbench-ukdale \
+    --batch-size 32 \
+    --device     cuda \
+    --out        ./report/
+
+# Two-step variant: run once, score (and re-score) cheaply afterwards.
+nilmbench run \
+    --module my_pkg.my_module:MyModel \
+    --weights ./my_checkpoint.pt \
+    --data    hf:Pybunny/nilmbench-ukdale \
+    --out     ./report/predictions.npz
+
+nilmbench evaluate \
+    --predictions ./report/predictions.npz \
+    --model       MyModel \
+    --out         ./report/
+```
+
+The output `report/report.md` contains the headline score sheet
+(`MJ_{20W}`, `MJ_{20%}`, `MF_{20%}`, F1, Jaccard, TECA, MAE, state accuracy)
+and the per-category `MJ_{20W}` breakdown, ready to drop into a paper or PR.
+
+## Reproducing the paper's baselines from scratch
+
+```bash
+# Optional: rebuild the splits yourself from raw UK-DALE 2015.
+export UKDALE_ROOT=/path/to/UK-DALE-2015
 nilmbench prepare-data --ukdale-root $UKDALE_ROOT --out ./data/
 
-# 2. Train a baseline (FaustineCNN, SchirmerCNN, COLD, DeepDFML).
-nilmbench train --model faustine --data ./data/sparse_hf_6s --epochs 30 --out ./runs/faustine/
+# Train one of the four reference baselines.
+nilmbench train --model faustine --data ./data/sparse_hf_6s \
+                --epochs 30 --out ./runs/faustine/
 
-# 3. Score on the dense House-2 set.
-nilmbench evaluate --model faustine --checkpoint ./runs/faustine/best.pt --data ./data/sparse_hf_6s/benchmark --out ./results/faustine/
+# Calibrate recall-constrained post-processing cutoffs on House-1 val.
+nilmbench calibrate \
+    --val-predictions ./runs/faustine/val_predictions.npz \
+    --recall-floor 0.5 \
+    --out ./runs/faustine/cutoffs.json
 
-# 4. Calibrate the recall-constrained post-processing cutoffs on House-1 val
-#    and re-score with them.
-nilmbench calibrate --predictions ./results/faustine/predictions.npz --val ./data/sparse_hf_6s/val --out ./results/faustine/
-
-# 5. Reproduce every figure in the paper from the saved predictions.
-python scripts/reproduce_figures.py --results ./results/ --out ./figures/
+# Score with cutoffs applied.
+nilmbench benchmark \
+    --module nilmbench.models.faustine:FaustineCNN \
+    --weights ./runs/faustine/best.pt \
+    --shares \
+    --cutoffs ./runs/faustine/cutoffs.json \
+    --out ./results/faustine/
 ```
 
 ## Repository layout

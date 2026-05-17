@@ -353,7 +353,6 @@ def _score_demo_pt(weights_file, n_frames):
     fp = (~A & B).sum(axis=1).astype(np.float32)
     fn = (A & ~B).sum(axis=1).astype(np.float32)
     f1d = tp + 0.5 * (fp + fn)
-    f1 = float(np.where(f1d > 0, tp / np.maximum(f1d, 1), np.nan))
     f1 = float(np.nanmean(np.where(f1d > 0, tp / np.maximum(f1d, 1), np.nan)))
     P = y_true.sum(axis=1)
     teca = float(np.nanmean(np.where(P > 0,
